@@ -1,0 +1,176 @@
+name: Upstream Rive Check
+
+on:
+  schedule:
+    - cron: "0 5 * * *"
+  workflow_dispatch:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+concurrency:
+  group: upstream-rive-check
+  cancel-in-progress: false
+
+jobs:
+  windows-upstream-check:
+    runs-on: windows-2022
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Resolve versions
+        id: versions
+        shell: powershell
+        run: |
+          $latest = (git ls-remote https://github.com/rive-app/rive-runtime.git refs/heads/main | ForEach-Object { ($_ -split "`t")[0] } | Select-Object -First 1).Trim()
+          if (-not $latest) {
+            throw "Failed to resolve the latest rive-runtime main SHA"
+          }
+
+          $match = Select-String -Path .\scripts\bootstrap.py -Pattern '^RIVE_RUNTIME_REV = "([0-9a-f]+)"$'
+          if (-not $match) {
+            throw "Could not find RIVE_RUNTIME_REV in scripts/bootstrap.py"
+          }
+          $current = $match.Matches[0].Groups[1].Value
+
+          "latest_sha=$latest" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "current_sha=$current" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+      - name: Bootstrap latest upstream dependencies
+        shell: powershell
+        env:
+          RIVEQT_RIVE_RUNTIME_REV: ${{ steps.versions.outputs.latest_sha }}
+        run: |
+          python .\scripts\bootstrap.py --refresh
+          $required = @(
+            '.\3rdparty\rive-cpp\include\rive\file.hpp',
+            '.\3rdparty\luau\VM\include\lua.h',
+            '.\3rdparty\libhydrogen\libhydrogen.c'
+          )
+          $missing = $required | Where-Object { -not (Test-Path $_) }
+          if ($missing.Count -gt 0) {
+            throw ("Missing vendored files after upstream bootstrap: " + ($missing -join ", "))
+          }
+
+      - name: Install Qt
+        id: qt
+        shell: powershell
+        run: |
+          python -m pip install --upgrade pip aqtinstall
+          $qtRoot = Join-Path $env:RUNNER_TEMP "Qt"
+          python -m aqt install-qt windows desktop 6.9.2 win64_msvc2022_64 --outputdir $qtRoot
+          $qt6Config = Get-ChildItem $qtRoot -Recurse -Filter Qt6Config.cmake | Select-Object -First 1 -ExpandProperty FullName
+          if (-not $qt6Config) {
+            throw "Qt6Config.cmake was not found under $qtRoot"
+          }
+          $qt6Dir = Split-Path -Parent $qt6Config
+          $qtPrefix = Resolve-Path (Join-Path $qt6Dir "..\\..\\..")
+          "qt_root=$qtPrefix" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "qt6_dir=$qt6Dir" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+      - name: Configure
+        shell: powershell
+        run: |
+          cmake -S . -B build-upstream -G "Visual Studio 17 2022" -A x64 `
+            -DCMAKE_PREFIX_PATH="${{ steps.qt.outputs.qt_root }}" `
+            -DQt6_DIR="${{ steps.qt.outputs.qt6_dir }}" `
+            -DRIVEQT_BUILD_EXAMPLES=ON `
+            -DRIVEQT_BUILD_TESTS=ON
+
+      - name: Build
+        shell: powershell
+        run: |
+          cmake --build build-upstream --config Debug --target riveqtquick_marketplace_demo riveqtquick_qml_tests riveqtquick_unit_tests
+
+      - name: Test
+        shell: powershell
+        run: |
+          ctest --test-dir build-upstream -C Debug --output-on-failure --timeout 180
+
+      - name: Update pinned rive-runtime revision
+        if: success() && steps.versions.outputs.latest_sha != steps.versions.outputs.current_sha
+        shell: powershell
+        run: |
+          $path = ".\scripts\bootstrap.py"
+          $text = Get-Content $path -Raw
+          $text = [regex]::Replace(
+            $text,
+            '^RIVE_RUNTIME_REV = "[0-9a-f]+"$',
+            'RIVE_RUNTIME_REV = "${{ steps.versions.outputs.latest_sha }}"',
+            [System.Text.RegularExpressions.RegexOptions]::Multiline
+          )
+          Set-Content $path $text -Encoding utf8
+
+      - name: Create or update PR
+        if: success() && steps.versions.outputs.latest_sha != steps.versions.outputs.current_sha
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $branch = "feature/update-rive-runtime"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -B $branch
+          git add scripts/bootstrap.py
+          git commit -m "chore: update rive-runtime to ${{ steps.versions.outputs.latest_sha }}"
+          git push --force --set-upstream origin $branch
+
+          $body = @(
+            "Daily upstream check passed against ${{ steps.versions.outputs.latest_sha }}.",
+            "",
+            "This updates the pinned `rive-runtime` seed in `scripts/bootstrap.py`."
+          ) -join "`n"
+
+          $existing = gh pr list --head $branch --base main --state open --json number --jq ".[0].number"
+          if ($existing) {
+            gh pr edit $existing --title "Update rive-runtime to ${{ steps.versions.outputs.latest_sha }}" --body $body
+          } else {
+            gh pr create --base main --head $branch --title "Update rive-runtime to ${{ steps.versions.outputs.latest_sha }}" --body $body
+          }
+
+      - name: Close failure issue after success
+        if: success()
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $issue = gh issue list --state open --search '"Upstream rive-runtime check failed" in:title' --json number --jq ".[0].number"
+          if ($issue) {
+            gh issue close $issue --comment "The daily upstream check passed for ${{ steps.versions.outputs.latest_sha }} in ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          }
+
+      - name: Notify failure
+        if: failure()
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $title = "Upstream rive-runtime check failed"
+          $body = @(
+            "@${{ github.repository_owner }}",
+            "",
+            "The daily upstream rive-runtime check failed.",
+            "",
+            "- Tested upstream SHA: ${{ steps.versions.outputs.latest_sha }}",
+            "- Current pinned SHA: ${{ steps.versions.outputs.current_sha }}",
+            "- Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          ) -join "`n"
+
+          $issue = gh issue list --state open --search '"Upstream rive-runtime check failed" in:title' --json number --jq ".[0].number"
+          if ($issue) {
+            gh issue comment $issue --body $body
+          } else {
+            gh issue create --title $title --body $body
+          }

@@ -1,0 +1,74 @@
+{
+  "upstream": {
+    "repository": "https://github.com/rive-app/rive-cpp",
+    "commit": "f739eea1d844cf1f8967a68c40556c7afea0f452",
+    "license": "MIT",
+    "copyright": "Copyright (c) 2020 Rive"
+  },
+  "files": [
+    {
+      "path": "tests/assets/rive/hello_world.riv",
+      "source": "tests/unit_tests/assets/hello_world.riv",
+      "purpose": "static render smoke",
+      "license": "MIT",
+      "attribution": "Vendored from rive-app/rive-cpp unit test assets."
+    },
+    {
+      "path": "tests/assets/rive/state_machine_triggers.riv",
+      "source": "tests/unit_tests/assets/state_machine_triggers.riv",
+      "purpose": "state machine control",
+      "license": "MIT",
+      "attribution": "Vendored from rive-app/rive-cpp unit test assets."
+    },
+    {
+      "path": "tests/assets/rive/data_binding_test.riv",
+      "source": "tests/unit_tests/assets/data_binding_test.riv",
+      "purpose": "view model and data binding",
+      "license": "MIT",
+      "attribution": "Vendored from rive-app/rive-cpp unit test assets."
+    },
+    {
+      "path": "tests/assets/rive/hosted_image_file.riv",
+      "source": "tests/unit_tests/assets/hosted_image_file.riv",
+      "purpose": "out-of-band asset resolution",
+      "license": "MIT",
+      "attribution": "Vendored from rive-app/rive-cpp unit test assets."
+    },
+    {
+      "path": "tests/assets/rive/25691-49048-interactive-icon-set.riv",
+      "source": "https://public.rive.app/community/runtime-files/25691-49048-interactive-icon-set.riv",
+      "detailUrl": "https://rive.app/marketplace/25691-49048-interactive-icon-set/",
+      "purpose": "icon grid example asset from the Rive marketplace",
+      "license": "CC BY 4.0",
+      "attribution": "Interactive Icon Set by gabermonti. Design: Silvia Sguotti. Motion & Interaction: Gabriele Montinaro."
+    },
+    {
+      "path": "tests/assets/hosted/eve-317.png",
+      "source": "tests/unit_tests/assets/out_of_band/eve-317.png",
+      "purpose": "hosted image payload",
+      "license": "MIT",
+      "attribution": "Vendored from rive-app/rive-cpp unit test assets."
+    },
+    {
+      "path": "tests/assets/hosted/one-45008.png",
+      "source": "https://public.uat.rive.app/cdn/uuid/edcb1816-8405-4983-acd2-16db48d85df4",
+      "purpose": "local mirror for hosted_image_file.riv payload",
+      "license": "MIT",
+      "attribution": "Mirrored payload used by the upstream hosted_image_file.riv test asset."
+    },
+    {
+      "path": "tests/assets/hosted/walle-370.png",
+      "source": "tests/unit_tests/assets/out_of_band/walle-370.png",
+      "purpose": "additional hosted image payload",
+      "license": "MIT",
+      "attribution": "Vendored from rive-app/rive-cpp unit test assets."
+    },
+    {
+      "path": "tests/assets/hosted/walle.riv",
+      "source": "tests/unit_tests/assets/out_of_band/walle.riv",
+      "purpose": "nested hosted asset smoke",
+      "license": "MIT",
+      "attribution": "Vendored from rive-app/rive-cpp unit test assets."
+    }
+  ]
+}

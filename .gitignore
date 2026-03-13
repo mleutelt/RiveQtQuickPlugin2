@@ -1,0 +1,15 @@
+build/
+build-vs/
+.qtcreator/
+3rdparty/
+
+*.user
+*.suo
+*.VC.db
+*.VC.VC.opendb
+
+*.log
+*.tmp
+*.bak
+__pycache__/
+*.pyc

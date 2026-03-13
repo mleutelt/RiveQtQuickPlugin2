@@ -1,0 +1,87 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - master
+      - feature/**
+  pull_request:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+permissions:
+  contents: read
+
+jobs:
+  windows-build-and-test:
+    runs-on: windows-2022
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Bootstrap third-party dependencies
+        shell: powershell
+        run: |
+          python .\scripts\bootstrap.py
+          $required = @(
+            '.\3rdparty\rive-cpp\include\rive\file.hpp',
+            '.\3rdparty\luau\VM\include\lua.h',
+            '.\3rdparty\libhydrogen\libhydrogen.c'
+          )
+          $missing = $required | Where-Object { -not (Test-Path $_) }
+          if ($missing.Count -gt 0) {
+            Write-Host "Missing vendored files after bootstrap:"
+            $missing | ForEach-Object { Write-Host "  $_" }
+            Write-Host "Retrying bootstrap with --refresh"
+            python .\scripts\bootstrap.py --refresh
+          }
+
+      - name: Install Qt
+        id: qt
+        shell: powershell
+        run: |
+          python -m pip install --upgrade pip aqtinstall
+          $qtRoot = Join-Path $env:RUNNER_TEMP "Qt"
+          python -m aqt install-qt windows desktop 6.9.2 win64_msvc2022_64 --outputdir $qtRoot
+          $qt6Config = Get-ChildItem $qtRoot -Recurse -Filter Qt6Config.cmake | Select-Object -First 1 -ExpandProperty FullName
+          if (-not $qt6Config) {
+            throw "Qt6Config.cmake was not found under $qtRoot"
+          }
+          $qt6Dir = Split-Path -Parent $qt6Config
+          $qtPrefix = Resolve-Path (Join-Path $qt6Dir "..\\..\\..")
+          "qt_root=$qtPrefix" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "qt6_dir=$qt6Dir" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+      - name: Verify vendored dependencies
+        shell: powershell
+        run: |
+          if (-not (Test-Path .\3rdparty\libhydrogen\libhydrogen.c)) {
+            throw 'libhydrogen.c is still missing after bootstrap'
+          }
+
+      - name: Configure
+        shell: powershell
+        run: |
+          cmake -S . -B build-ci -G "Visual Studio 17 2022" -A x64 `
+            -DCMAKE_PREFIX_PATH="${{ steps.qt.outputs.qt_root }}" `
+            -DQt6_DIR="${{ steps.qt.outputs.qt6_dir }}" `
+            -DRIVEQT_BUILD_EXAMPLES=ON `
+            -DRIVEQT_BUILD_TESTS=ON
+
+      - name: Build
+        shell: powershell
+        run: |
+          cmake --build build-ci --config Debug --target riveqtquick_marketplace_demo riveqtquick_qml_tests riveqtquick_unit_tests
+
+      - name: Test
+        shell: powershell
+        run: |
+          ctest --test-dir build-ci -C Debug --output-on-failure --timeout 180
