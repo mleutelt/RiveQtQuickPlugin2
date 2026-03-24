@@ -33,10 +33,10 @@ https://github.com/user-attachments/assets/077cfbf9-a3d2-4a5f-93f5-b1051273a8dc
 - Android Support 
 - Vulkan
 - Direct3d11 and 12
+- Metal Support for Mac OS
+- IOS Support
 
 -> no opengl support
-
--> no metal support
 
 -> no software render support
 
